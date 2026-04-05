@@ -116,3 +116,23 @@ export const login = async (req, res, next) => {
     next(error);
   }
 };
+
+export const updatePersonalData = async (req, res, next) => {
+  try {
+    const { name, lastName, nif } = req.body;
+
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { name, lastName, nif },
+      { new: true }
+    );
+
+    if (!user) {
+      return next(AppError.notFound("User not found"));
+    }
+
+    res.json({ user });
+  } catch (error) {
+    next(error);
+  }
+};
