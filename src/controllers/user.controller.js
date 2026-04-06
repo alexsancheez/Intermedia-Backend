@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import Company from "../models/Company.js";
 import config from "../config/index.js";
 import AppError from "../utils/AppError.js";
 import notificationService from "../services/notification.service.js";
@@ -132,6 +133,48 @@ export const updatePersonalData = async (req, res, next) => {
     }
 
     res.json({ user });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateCompany = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return next(AppError.notFound("User not found"));
+    }
+
+    let companyData = req.body;
+
+    if (companyData.isFreelance) {
+      companyData = {
+        name: user.name + " " + user.lastName,
+        cif: user.nif,
+        address: user.address,
+        isFreelance: true,
+      };
+    }
+
+    const existingCompany = await Company.findOne({ cif: companyData.cif });
+
+    if (existingCompany) {
+      user.company = existingCompany._id;
+      user.role = "guest";
+      await user.save();
+
+      return res.json({ user, company: existingCompany });
+    }
+
+    const company = await Company.create({
+      ...companyData,
+      owner: user._id,
+    });
+
+    user.company = company._id;
+    await user.save();
+
+    res.status(201).json({ user, company });
   } catch (error) {
     next(error);
   }
