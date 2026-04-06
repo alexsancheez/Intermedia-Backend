@@ -179,3 +179,42 @@ export const updateCompany = async (req, res, next) => {
     next(error);
   }
 };
+
+export const uploadLogo = async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return next(AppError.badRequest("No file uploaded"));
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user || !user.company) {
+      return next(AppError.badRequest("User has no company assigned"));
+    }
+
+    const company = await Company.findByIdAndUpdate(
+      user.company,
+      { logo: req.file.path },
+      { new: true }
+    );
+
+    res.json({ company });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getUser = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id)
+      .select("-password -verificationCode -verificationAttempts")
+      .populate("company");
+
+    if (!user) {
+      return next(AppError.notFound("User not found"));
+    }
+
+    res.json({ user });
+  } catch (error) {
+    next(error);
+  }
+};
