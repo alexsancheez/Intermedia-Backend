@@ -40,6 +40,7 @@ const userSchema = new mongoose.Schema(
       city: String,
       province: String,
     },
+    refreshToken: String,
     deleted: {
       type: Boolean,
       default: false,

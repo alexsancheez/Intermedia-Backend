@@ -49,6 +49,9 @@ export const register = async (req, res, next) => {
 
     const tokens = generateTokens(user);
 
+    user.refreshToken = tokens.refreshToken;
+    await user.save();
+
     res.status(201).json({
       user: { email: user.email, status: user.status, role: user.role },
       ...tokens,
@@ -102,6 +105,9 @@ export const login = async (req, res, next) => {
     }
 
     const tokens = generateTokens(user);
+
+    user.refreshToken = tokens.refreshToken;
+    await user.save();
 
     res.json({
       user: {
@@ -206,7 +212,7 @@ export const uploadLogo = async (req, res, next) => {
 export const getUser = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id)
-      .select("-password -verificationCode -verificationAttempts")
+      .select("-password -verificationCode -verificationAttempts -refreshToken")
       .populate("company");
 
     if (!user) {
@@ -214,6 +220,129 @@ export const getUser = async (req, res, next) => {
     }
 
     res.json({ user });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const refreshSession = async (req, res, next) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return next(AppError.badRequest("Refresh token is required"));
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(refreshToken, config.jwt.refreshSecret);
+    } catch (err) {
+      return next(AppError.unauthorized("Invalid or expired refresh token"));
+    }
+
+    const user = await User.findById(decoded.id);
+    if (!user || user.refreshToken !== refreshToken) {
+      return next(AppError.unauthorized("Invalid refresh token"));
+    }
+
+    const tokens = generateTokens(user);
+
+    user.refreshToken = tokens.refreshToken;
+    await user.save();
+
+    res.json(tokens);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const logout = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return next(AppError.notFound("User not found"));
+    }
+
+    user.refreshToken = null;
+    await user.save();
+
+    res.json({ message: "Logged out successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteUser = async (req, res, next) => {
+  try {
+    const isSoft = req.query.soft === "true";
+
+    if (isSoft) {
+      await User.findByIdAndUpdate(req.user.id, { deleted: true });
+    } else {
+      await User.findByIdAndDelete(req.user.id);
+    }
+
+    notificationService.emit("user:deleted", { email: req.user.email });
+
+    res.json({ message: "User deleted successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const inviteUser = async (req, res, next) => {
+  try {
+    const admin = await User.findById(req.user.id);
+    if (!admin || !admin.company) {
+      return next(AppError.badRequest("User has no company assigned"));
+    }
+
+    const { email, password, name, lastName, nif } = req.body;
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return next(AppError.conflict("Email already registered"));
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await User.create({
+      email,
+      password: hashedPassword,
+      name,
+      lastName,
+      nif,
+      role: "guest",
+      status: "verified",
+      company: admin.company,
+    });
+
+    notificationService.emit("user:invited", user);
+
+    res.status(201).json({ user });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return next(AppError.notFound("User not found"));
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return next(AppError.unauthorized("Current password is incorrect"));
+    }
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+
+    res.json({ message: "Password updated successfully" });
   } catch (error) {
     next(error);
   }
